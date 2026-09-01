@@ -1,6 +1,6 @@
 [package]
 name = "one-indexed-vec"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "A one-based (1-indexed) wrapper around Vec<T>: element at position N is accessed via vec[N]."
 license = "MIT OR Apache-2.0"
