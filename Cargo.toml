@@ -1,0 +1,26 @@
+[package]
+name = "one-indexed-vec"
+version = "0.1.0"
+edition = "2021"
+description = "A one-based (1-indexed) wrapper around Vec<T>: element at position N is accessed via vec[N]."
+license = "MIT OR Apache-2.0"
+keywords = ["vec", "index", "one-based", "1-indexed", "container"]
+categories = ["data-structures", "no-std"]
+repository = ""
+
+[features]
+default = ["std"]
+# 开启后使用 std（默认）；关闭后为 no_std，仅依赖 alloc。
+std = []
+# 开启 serde 序列化支持。
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { version = "1", optional = true, features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
+
+[[test]]
+name = "serde"
+required-features = ["serde"]
