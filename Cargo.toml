@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 description = "A one-based (1-indexed) wrapper around Vec<T>: element at position N is accessed via vec[N]."
 license = "MIT OR Apache-2.0"
-keywords = ["vec", "index", "one-based", "1-indexed", "container"]
+keywords = ["vec", "index", "one-based", "1-indexed", "container","mathematics","science"]
 categories = ["data-structures", "no-std"]
-repository = ""
+repository = "https://github.com/huanghu578/one-indexed-vec"
 
 [features]
 default = ["std"]
