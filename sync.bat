@@ -13,7 +13,16 @@ if not exist ".git" (
     exit /b 1
 )
 
-:: 2. Get current time as commit message
+:: 2. Get current branch name
+for /f %%i in ('git branch --show-current') do set current_branch=%%i
+if "%current_branch%"=="" (
+    echo Error: Unable to detect current branch. Are you in a Git repository?
+    pause
+    exit /b 1
+)
+echo Current branch: %current_branch%
+
+:: 3. Get current time as commit message
 for /f "tokens=1-3 delims=/- " %%a in ('date /t') do (
     set date_str=%%a-%%b-%%c
 )
@@ -22,7 +31,7 @@ for /f "tokens=1-2 delims=: " %%a in ('time /t') do (
 )
 set commit_msg=Sync on %date_str% %time_str%
 
-:: 3. Add all changes
+:: 4. Add all changes
 echo Adding all changes...
 git add .
 if %errorlevel% neq 0 (
@@ -31,7 +40,7 @@ if %errorlevel% neq 0 (
     exit /b %errorlevel%
 )
 
-:: 4. Commit to local
+:: 5. Commit to local
 echo Committing to local repository...
 git commit -m "%commit_msg%"
 if %errorlevel% neq 0 (
@@ -44,9 +53,9 @@ if %errorlevel% neq 0 (
     )
 )
 
-:: 5. Pull latest from remote (using rebase)
+:: 6. Pull latest from remote (using rebase)
 echo Pulling latest from remote...
-git pull --rebase origin master
+git pull --rebase origin %current_branch%
 if %errorlevel% neq 0 (
     echo ========================================
     echo Conflict detected during pull!
@@ -57,9 +66,9 @@ if %errorlevel% neq 0 (
     exit /b %errorlevel%
 )
 
-:: 6. Push to remote
+:: 7. Push to remote
 echo Pushing to remote...
-git push origin master
+git push origin %current_branch%
 if %errorlevel% neq 0 (
     echo git push failed, please check network or permissions.
     pause
@@ -68,6 +77,7 @@ if %errorlevel% neq 0 (
 
 echo ========================================
 echo Sync completed!
+echo Branch: %current_branch%
 echo Commit message: %commit_msg%
 echo ========================================
 pause
