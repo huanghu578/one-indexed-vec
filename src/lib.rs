@@ -220,3 +220,8 @@ pub mod vec_index_from_one;
 pub use vec_index_from_one::index1::Index1;
 pub use vec_index_from_one::ops;
 pub use vec_index_from_one::VecIndexFromOne;
+
+
+
+// Re-export window and iterator types for external use
+pub use vec_index_from_one::ops::{WindowMut, Windows, WindowsMut, PrefixSumView};

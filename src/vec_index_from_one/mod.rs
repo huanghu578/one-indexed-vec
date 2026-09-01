@@ -409,6 +409,8 @@ macro_rules! vec1 {
         v
     }};
 }
+// 重新导出宏到模块级别（可选）
+pub use crate::vec1;
 
 #[cfg(test)]
 mod tests {
