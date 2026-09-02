@@ -10,14 +10,8 @@
 
 Mathematical notation naturally indexes vectors from 1: `x₁, x₂, ..., xₙ`. This crate lets you **transcribe formulas directly into code** without the mental overhead of subtracting 1 at every access.
 
-```rust
-// Mathematical formula: S = Σᵢ₌₁ⁿ xᵢ
-// Direct translation:
-let sum: i32 = v.iter().sum();  // Naturally starts at the 1st element
 ✨ Features
 ✅ 1-based indexing: v[1] accesses the first element, v[n] accesses the nth
-
-✅ Compile-time non-empty guarantee: VecIndexFromOne cannot be empty (via vec1! macro)
 
 ✅ Type-safe indexing: Index1 strong type prevents 0-based/index confusion
 
@@ -35,12 +29,12 @@ Add to your Cargo.toml:
 
 toml
 [dependencies]
-one-indexed-vec = "0.1.0"
+one-indexed-vec = "0.1.2"
 Basic Usage
 rust
 use one_indexed_vec::{VecIndexFromOne, vec1};
 
-// Create a 1-indexed vector
+// Create a 1-indexed vector from a Vec
 let mut v = VecIndexFromOne::from(vec![10, 20, 30]);
 v.push(40);
 
@@ -66,7 +60,7 @@ use one_indexed_vec::{VecIndexFromOne, vec1};
 
 // Empty vector is NOT allowed (compile-time)
 let v = vec1![1, 2, 3, 4, 5];     // ✅
-// let empty = vec1![];            // ❌ Compile error: must be non-empty
+let h4: VecIndexFromOne<i32>=vec1![];            // create a empty VecIndexFromOne
 
 // From existing Vec
 let raw = vec![10, 20, 30];
