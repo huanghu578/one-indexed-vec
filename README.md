@@ -45,7 +45,7 @@ assert_eq!(v.first(), Some(&10));
 let v2 = vec1![1, 2, 3];  
  
 // Dot product  
-let dpu = v.dot_product_upto(&v2, 3); // 10*1 + 20*2 + 30*3 = 140  
+let dpu = v.dot_product_upto(&v2, 3); //10*1 + 20*2 + 30*3 = 140  
 assert_eq!(dpu, 140);  
 
 📚 Detailed Features  
