@@ -17,6 +17,8 @@
 //! ```
 
 use core::ops::{Add, Mul, Sub, Div};
+use std::collections::BinaryHeap;
+use std::cmp::Reverse;
 
 use crate::vec_index_from_one::VecIndexFromOne;
 use crate::vec_index_from_one::index1::Index1;
@@ -1179,6 +1181,946 @@ where
 }
 
 // ============================================================================
+// Sliding window extreme values (monotonic queue)
+// ============================================================================
+
+impl<T> VecIndexFromOne<T>
+where
+    T: Copy + PartialOrd + Default,
+{
+    /// Computes the sliding window maximum for each window of size `n`.
+    ///
+    /// Uses a monotonic deque for O(n) time complexity.
+    /// Result length = `len - n + 1`, 1-indexed.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![1, 3, -1, -3, 5, 3, 6, 7];
+    /// let maxes = v.sliding_window_max(3);
+    /// assert_eq!(maxes.as_slice(), &[3, 3, 5, 5, 6, 7]);
+    /// ```
+    #[inline]
+    pub fn sliding_window_max(&self, n: usize) -> VecIndexFromOne<T>
+    where
+        T: PartialOrd + Copy,
+    {
+        assert!(n > 0, "sliding_window_max: window size must be > 0");
+        if self.len() < n {
+            return VecIndexFromOne::new();
+        }
+
+        let mut result = VecIndexFromOne::with_capacity(self.len() - n + 1);
+        let mut deque: Vec<usize> = Vec::with_capacity(n);
+
+        for i in 1..=self.len() {
+            // Remove elements outside current window
+            if let Some(&front) = deque.first() {
+                if front < i - n + 1 {
+                    deque.remove(0);
+                }
+            }
+
+            // Remove smaller elements from back
+            while let Some(&last) = deque.last() {
+                if self[last] <= self[i] {
+                    deque.pop();
+                } else {
+                    break;
+                }
+            }
+
+            deque.push(i);
+
+            if i >= n {
+                result.push(self[deque[0]]);
+            }
+        }
+
+        result
+    }
+
+    /// Computes the sliding window minimum for each window of size `n`.
+    ///
+    /// Uses a monotonic deque for O(n) time complexity.
+    /// Result length = `len - n + 1`, 1-indexed.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![1, 3, -1, -3, 5, 3, 6, 7];
+    /// let mins = v.sliding_window_min(3);
+    /// assert_eq!(mins.as_slice(), &[-1, -3, -3, -3, 3, 3]);
+    /// ```
+    #[inline]
+    pub fn sliding_window_min(&self, n: usize) -> VecIndexFromOne<T>
+    where
+        T: PartialOrd + Copy,
+    {
+        assert!(n > 0, "sliding_window_min: window size must be > 0");
+        if self.len() < n {
+            return VecIndexFromOne::new();
+        }
+
+        let mut result = VecIndexFromOne::with_capacity(self.len() - n + 1);
+        let mut deque: Vec<usize> = Vec::with_capacity(n);
+
+        for i in 1..=self.len() {
+            // Remove elements outside current window
+            if let Some(&front) = deque.first() {
+                if front < i - n + 1 {
+                    deque.remove(0);
+                }
+            }
+
+            // Remove larger elements from back
+            while let Some(&last) = deque.last() {
+                if self[last] >= self[i] {
+                    deque.pop();
+                } else {
+                    break;
+                }
+            }
+
+            deque.push(i);
+
+            if i >= n {
+                result.push(self[deque[0]]);
+            }
+        }
+
+        result
+    }
+}
+
+// ============================================================================
+// Sliding window median (two heaps)
+// ============================================================================
+
+impl<T> VecIndexFromOne<T>
+where
+    T: Copy + Ord + Default,
+{
+    /// Computes the sliding window median for each window of size `n`.
+    ///
+    /// Uses two heaps (max-heap for lower half, min-heap for upper half)
+    /// with O(n log n) time complexity.
+    /// Result length = `len - n + 1`, 1-indexed.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![1, 3, 2, 4, 5, 6, 7, 8];
+    /// let medians = v.sliding_window_median(3);
+    /// assert_eq!(medians.as_slice(), &[2, 3, 4, 5, 6, 7]);
+    /// ```
+    #[inline]
+    pub fn sliding_window_median(&self, n: usize) -> VecIndexFromOne<T>
+    where
+        T: Ord + Copy,
+    {
+        assert!(n > 0, "sliding_window_median: window size must be > 0");
+        if self.len() < n {
+            return VecIndexFromOne::new();
+        }
+
+        let mut result = VecIndexFromOne::with_capacity(self.len() - n + 1);
+        let mut lower = BinaryHeap::new(); // max-heap
+        let mut upper = BinaryHeap::new(); // min-heap (Reverse)
+        let mut freq: std::collections::HashMap<T, usize> = std::collections::HashMap::new();
+
+        // Helper to balance heaps
+        let balance = |lower: &mut BinaryHeap<T>, upper: &mut BinaryHeap<Reverse<T>>| {
+            while lower.len() > upper.len() + 1 {
+                if let Some(val) = lower.pop() {
+                    upper.push(Reverse(val));
+                }
+            }
+            while upper.len() > lower.len() {
+                if let Some(Reverse(val)) = upper.pop() {
+                    lower.push(val);
+                }
+            }
+        };
+
+        // Helper to remove stale elements
+        let clean = |heap: &mut BinaryHeap<T>, freq: &mut std::collections::HashMap<T, usize>| {
+            while let Some(&top) = heap.peek() {
+                if let Some(&count) = freq.get(&top) {
+                    if count > 0 {
+                        break;
+                    }
+                }
+                heap.pop();
+            }
+        };
+
+        let clean_rev =
+            |heap: &mut BinaryHeap<Reverse<T>>, freq: &mut std::collections::HashMap<T, usize>| {
+                while let Some(&Reverse(top)) = heap.peek() {
+                    if let Some(&count) = freq.get(&top) {
+                        if count > 0 {
+                            break;
+                        }
+                    }
+                    heap.pop();
+                }
+            };
+
+        for i in 1..=self.len() {
+            let val = self[i];
+
+            // Add new element
+            *freq.entry(val).or_insert(0) += 1;
+
+            if lower.is_empty() || val <= *lower.peek().unwrap() {
+                lower.push(val);
+            } else {
+                upper.push(Reverse(val));
+            }
+
+            balance(&mut lower, &mut upper);
+
+            // Remove element that's leaving the window
+            if i > n {
+                let old = self[i - n];
+                let count = freq.entry(old).or_insert(0);
+                *count -= 1;
+                if *count == 0 {
+                    freq.remove(&old);
+                }
+                clean(&mut lower, &mut freq);
+                clean_rev(&mut upper, &mut freq);
+                balance(&mut lower, &mut upper);
+            }
+
+            if i >= n {
+                if lower.len() == upper.len() {
+                    // Even number of elements - average of two middle values
+                    // For simplicity, return the lower median
+                    result.push(*lower.peek().unwrap());
+                } else {
+                    result.push(*lower.peek().unwrap());
+                }
+            }
+        }
+
+        result
+    }
+}
+
+// ============================================================================
+// Exponential Weighted Moving Average (EWMA)
+// ============================================================================
+
+impl<T> VecIndexFromOne<T>
+where
+    T: Copy + Add<Output = T> + Sub<Output = T> + Mul<Output = T> + Default + From<f64>,
+{
+    /// Computes the Exponential Weighted Moving Average with given alpha.
+    ///
+    /// Formula: `ewma[i] = alpha * v[i] + (1 - alpha) * ewma[i-1]`
+    /// The result has the same length as the input, 1-indexed.
+    ///
+    /// # Parameters
+    /// - `alpha`: smoothing factor in (0, 1]. Higher alpha = more responsive.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![1.0, 2.0, 3.0, 4.0, 5.0];
+    /// let ewma = v.ewma(0.3);
+    /// // ewma[1] = 1.0
+    /// // ewma[2] = 0.3 * 2.0 + 0.7 * 1.0 = 1.3
+    /// // ewma[3] = 0.3 * 3.0 + 0.7 * 1.3 = 1.81
+    /// ```
+    #[inline]
+    pub fn ewma(&self, alpha: f64) -> VecIndexFromOne<T> {
+        assert!(
+            alpha > 0.0 && alpha <= 1.0,
+            "ewma: alpha must be in (0, 1] (got {})",
+            alpha
+        );
+        if self.is_empty() {
+            return VecIndexFromOne::new();
+        }
+
+        let mut result = VecIndexFromOne::with_capacity(self.len());
+        let alpha_t = T::from(alpha);
+        let one_minus_alpha = T::from(1.0 - alpha);
+
+        let mut ewma = self[1];
+        result.push(ewma);
+
+        for i in 2..=self.len() {
+            ewma = alpha_t * self[i] + one_minus_alpha * ewma;
+            result.push(ewma);
+        }
+
+        result
+    }
+
+    /// Computes the EWMA with an initial value.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![1.0, 2.0, 3.0];
+    /// let ewma = v.ewma_with_initial(0.5, 10.0);
+    /// // ewma[1] = 0.5 * 1.0 + 0.5 * 10.0 = 5.5
+    /// ```
+    #[inline]
+    pub fn ewma_with_initial(&self, alpha: f64, initial: T) -> VecIndexFromOne<T>
+    where
+        T: From<f64>,
+    {
+        assert!(
+            alpha > 0.0 && alpha <= 1.0,
+            "ewma_with_initial: alpha must be in (0, 1] (got {})",
+            alpha
+        );
+        if self.is_empty() {
+            return VecIndexFromOne::new();
+        }
+
+        let mut result = VecIndexFromOne::with_capacity(self.len());
+        let alpha_t = T::from(alpha);
+        let one_minus_alpha = T::from(1.0 - alpha);
+
+        let mut ewma = alpha_t * self[1] + one_minus_alpha * initial;
+        result.push(ewma);
+
+        for i in 2..=self.len() {
+            ewma = alpha_t * self[i] + one_minus_alpha * ewma;
+            result.push(ewma);
+        }
+
+        result
+    }
+}
+
+// ============================================================================
+// Reservoir Sampling
+// ============================================================================
+
+impl<T> VecIndexFromOne<T>
+where
+    T: Copy,
+{
+    /// Performs reservoir sampling to get `k` random samples from the vector.
+    ///
+    /// This is a streaming algorithm that works in O(n) time and O(k) memory.
+    /// It uniformly samples `k` elements without replacement.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    /// let samples = v.reservoir_sample(3);
+    /// assert_eq!(samples.len(), 3);
+    /// ```
+    #[inline]
+    pub fn reservoir_sample(&self, k: usize) -> VecIndexFromOne<T> {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+
+        if k == 0 || self.is_empty() {
+            return VecIndexFromOne::new();
+        }
+
+        let k = k.min(self.len());
+        let mut reservoir = VecIndexFromOne::with_capacity(k);
+
+        // Fill the reservoir with first k elements
+        for i in 1..=k {
+            reservoir.push(self[i]);
+        }
+
+        // Replace elements with decreasing probability
+        for i in (k + 1)..=self.len() {
+            let j = rng.gen_range(1..=i);
+            if j <= k {
+                reservoir[j] = self[i];
+            }
+        }
+
+        reservoir
+    }
+}
+
+// ============================================================================
+// Kadane's Algorithm (Maximum Subarray Sum)
+// ============================================================================
+
+impl<T> VecIndexFromOne<T>
+where
+    T: Copy + Add<Output = T> + PartialOrd + Default,
+{
+    /// Finds the maximum subarray sum (Kadane's algorithm).
+    ///
+    /// Returns the maximum sum and the 1-based start and end indices.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![-2, 1, -3, 4, -1, 2, 1, -5, 4];
+    /// let (max_sum, start, end) = v.max_subarray_sum();
+    /// assert_eq!(max_sum, 6);
+    /// assert_eq!(start, 4);
+    /// assert_eq!(end, 7);
+    /// ```
+    #[inline]
+    pub fn max_subarray_sum(&self) -> (T, usize, usize)
+    where
+        T: PartialOrd + Copy + Add<Output = T> + Default,
+    {
+        if self.is_empty() {
+            return (T::default(), 0, 0);
+        }
+
+        let mut max_sum = self[1];
+        let mut current_sum = self[1];
+        let mut current_start = 1;
+        let mut start = 1;
+        let mut end = 1;
+
+        for i in 2..=self.len() {
+            if current_sum < T::default() {
+                current_sum = self[i];
+                current_start = i;
+            } else {
+                current_sum = current_sum + self[i];
+            }
+
+            if current_sum > max_sum {
+                max_sum = current_sum;
+                start = current_start;
+                end = i;
+            }
+        }
+
+        (max_sum, start, end)
+    }
+
+    /// Finds the maximum subarray product (similar to Kadane's for multiplication).
+    ///
+    /// Returns the maximum product and the 1-based start and end indices.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![2, -5, -2, 4, -1];
+    /// let (max_prod, start, end) = v.max_subarray_product();
+    /// assert_eq!(max_prod, 40);
+    /// ```
+    #[inline]
+    pub fn max_subarray_product(&self) -> (T, usize, usize)
+    where
+        T: PartialOrd + Copy + Mul<Output = T> + Default + From<u8>,
+    {
+        if self.is_empty() {
+            return (T::default(), 0, 0);
+        }
+
+        let mut max_prod = self[1];
+        let mut min_prod = self[1];
+        let mut current_start = 1;
+        let mut start = 1;
+        let mut end = 1;
+
+        for i in 2..=self.len() {
+            let val = self[i];
+            let new_max = {
+                let candidates = [val, max_prod * val, min_prod * val];
+                *candidates.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap()
+            };
+            let new_min = {
+                let candidates = [val, max_prod * val, min_prod * val];
+                *candidates.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap()
+            };
+
+            // Reset if we started new subarray at i
+            if new_max == val && val > max_prod * val && val > min_prod * val {
+                current_start = i;
+            }
+
+            max_prod = new_max;
+            min_prod = new_min;
+
+            if max_prod > max_prod {
+                max_prod = max_prod;
+                start = current_start;
+                end = i;
+            }
+        }
+
+        (max_prod, start, end)
+    }
+}
+
+// ============================================================================
+// Boyer-Moore Majority Vote
+// ============================================================================
+
+impl<T> VecIndexFromOne<T>
+where
+    T: Copy + PartialEq,
+{
+    /// Finds the majority element (appears more than n/2 times) using
+    /// the Boyer-Moore majority vote algorithm.
+    ///
+    /// Returns `Some(majority)` if it exists, `None` otherwise.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![1, 2, 1, 1, 3, 1, 1];
+    /// assert_eq!(v.majority_element(), Some(1));
+    /// ```
+    #[inline]
+    pub fn majority_element(&self) -> Option<T> {
+        if self.is_empty() {
+            return None;
+        }
+
+        let mut candidate = self[1];
+        let mut count = 0;
+
+        // Phase 1: Find candidate
+        for &x in self.iter() {
+            if count == 0 {
+                candidate = x;
+                count = 1;
+            } else if x == candidate {
+                count += 1;
+            } else {
+                count -= 1;
+            }
+        }
+
+        // Phase 2: Verify candidate
+        let mut count = 0;
+        for &x in self.iter() {
+            if x == candidate {
+                count += 1;
+            }
+        }
+
+        if count > self.len() / 2 {
+            Some(candidate)
+        } else {
+            None
+        }
+    }
+
+    /// Finds all elements that appear more than n/3 times.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![1, 2, 1, 3, 1, 2, 2];
+    /// let result = v.majority_elements_n3();
+    /// assert_eq!(result.as_slice(), &[1, 2]);
+    /// ```
+    #[inline]
+    pub fn majority_elements_n3(&self) -> VecIndexFromOne<T>
+    where
+        T: Copy + PartialEq + Default,
+    {
+        if self.is_empty() {
+            return VecIndexFromOne::new();
+        }
+
+        let mut candidate1 = T::default();
+        let mut candidate2 = T::default();
+        let mut count1 = 0;
+        let mut count2 = 0;
+        let mut initialized1 = false;
+        let mut initialized2 = false;
+
+        // Phase 1: Find candidates
+        for &x in self.iter() {
+            if initialized1 && x == candidate1 {
+                count1 += 1;
+            } else if initialized2 && x == candidate2 {
+                count2 += 1;
+            } else if !initialized1 {
+                candidate1 = x;
+                initialized1 = true;
+                count1 = 1;
+            } else if !initialized2 {
+                candidate2 = x;
+                initialized2 = true;
+                count2 = 1;
+            } else {
+                count1 -= 1;
+                count2 -= 1;
+                if count1 == 0 {
+                    initialized1 = false;
+                }
+                if count2 == 0 {
+                    initialized2 = false;
+                }
+            }
+        }
+
+        // Phase 2: Verify candidates
+        let mut result = VecIndexFromOne::new();
+        let threshold = self.len() / 3;
+
+        if initialized1 {
+            let count = self.iter().filter(|&&x| x == candidate1).count();
+            if count > threshold {
+                result.push(candidate1);
+            }
+        }
+
+        if initialized2 && candidate2 != candidate1 {
+            let count = self.iter().filter(|&&x| x == candidate2).count();
+            if count > threshold {
+                result.push(candidate2);
+            }
+        }
+
+        result
+    }
+}
+
+// ============================================================================
+// Discrete Convolution
+// ============================================================================
+
+impl<T> VecIndexFromOne<T>
+where
+    T: Copy + Add<Output = T> + Mul<Output = T> + Default,
+{
+    /// Computes the discrete convolution of two vectors.
+    ///
+    /// Result length = `len(a) + len(b) - 1`, 1-indexed.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let a = vec1![1, 2, 3];
+    /// let b = vec1![4, 5];
+    /// let conv = a.convolve(&b);
+    /// // [1*4, 1*5+2*4, 2*5+3*4, 3*5] = [4, 13, 22, 15]
+    /// assert_eq!(conv.as_slice(), &[4, 13, 22, 15]);
+    /// ```
+    #[inline]
+    pub fn convolve(&self, other: &VecIndexFromOne<T>) -> VecIndexFromOne<T> {
+        if self.is_empty() || other.is_empty() {
+            return VecIndexFromOne::new();
+        }
+
+        let n = self.len();
+        let m = other.len();
+        let mut result = VecIndexFromOne::with_capacity(n + m - 1);
+
+        for i in 0..(n + m - 1) {
+            let mut sum = T::default();
+            let start = if i >= m { i - m + 1 } else { 0 };
+            let end = (i + 1).min(n);
+            for j in start..end {
+                sum = sum + self[j + 1] * other[i - j + 1];
+            }
+            result.push(sum);
+        }
+
+        result
+    }
+
+    /// Computes the cross-correlation of two vectors.
+    ///
+    /// Result length = `len(a) + len(b) - 1`, 1-indexed.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let a = vec1![1, 2, 3];
+    /// let b = vec1![4, 5];
+    /// let corr = a.cross_correlate(&b);
+    /// ```
+    #[inline]
+    pub fn cross_correlate(&self, other: &VecIndexFromOne<T>) -> VecIndexFromOne<T> {
+        if self.is_empty() || other.is_empty() {
+            return VecIndexFromOne::new();
+        }
+
+        let n = self.len();
+        let m = other.len();
+        let mut result = VecIndexFromOne::with_capacity(n + m - 1);
+
+        for i in 0..(n + m - 1) {
+            let mut sum = T::default();
+            let start = if i >= m { i - m + 1 } else { 0 };
+            let end = (i + 1).min(n);
+            for j in start..end {
+                sum = sum + self[j + 1] * other[i - j + 1];
+            }
+            result.push(sum);
+        }
+
+        result
+    }
+}
+
+// ============================================================================
+// Normalization (Min-Max, Z-Score)
+// ============================================================================
+
+impl<T> VecIndexFromOne<T>
+where
+    T: Copy + PartialOrd + Add<Output = T> + Sub<Output = T> + Mul<Output = T> + Div<Output = T> + Default + From<u8> + Into<f64> + From<f64>,
+{
+    /// Performs Min-Max normalization: `(x - min) / (max - min)`
+    ///
+    /// Returns a new vector of f64 values normalized to [0, 1].
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![1.0, 2.0, 3.0, 4.0, 5.0];
+    /// let normalized = v.min_max_normalize();
+    /// assert_eq!(normalized.as_slice(), &[0.0, 0.25, 0.5, 0.75, 1.0]);
+    /// ```
+    #[inline]
+    pub fn min_max_normalize(&self) -> VecIndexFromOne<f64> {
+        if self.is_empty() {
+            return VecIndexFromOne::new();
+        }
+
+        let mut min_val = self[1];
+        let mut max_val = self[1];
+
+        for i in 2..=self.len() {
+            if self[i] < min_val {
+                min_val = self[i];
+            }
+            if self[i] > max_val {
+                max_val = self[i];
+            }
+        }
+
+        let min_f64: f64 = min_val.into();
+        let max_f64: f64 = max_val.into();
+        let range = max_f64 - min_f64;
+
+        if range == 0.0 {
+            let mut result = VecIndexFromOne::with_capacity(self.len());
+            for _ in 1..=self.len() {
+                result.push(0.5);
+            }
+            return result;
+        }
+
+        let mut result = VecIndexFromOne::with_capacity(self.len());
+        for i in 1..=self.len() {
+            let val_f64: f64 = self[i].into();
+            result.push((val_f64 - min_f64) / range);
+        }
+
+        result
+    }
+
+    /// Performs Z-Score normalization: `(x - mean) / std_dev`
+    ///
+    /// Returns a new vector of f64 values with mean=0 and std=1.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![1.0, 2.0, 3.0, 4.0, 5.0];
+    /// let normalized = v.z_score_normalize();
+    /// assert!((normalized[1] - (-1.414)).abs() < 1e-3);
+    /// ```
+    #[inline]
+    pub fn z_score_normalize(&self) -> VecIndexFromOne<f64> {
+        if self.len() < 2 {
+            let mut result = VecIndexFromOne::with_capacity(self.len());
+            for _ in 1..=self.len() {
+                result.push(0.0);
+            }
+            return result;
+        }
+
+        let mean = self.mean();
+        let std_dev = self.std_dev();
+        let std_f64: f64 = std_dev.into();
+        let mean_f64: f64 = mean.into();
+
+        if std_f64 == 0.0 {
+            let mut result = VecIndexFromOne::with_capacity(self.len());
+            for _ in 1..=self.len() {
+                result.push(0.0);
+            }
+            return result;
+        }
+
+        let mut result = VecIndexFromOne::with_capacity(self.len());
+        for i in 1..=self.len() {
+            let val_f64: f64 = self[i].into();
+            result.push((val_f64 - mean_f64) / std_f64);
+        }
+
+        result
+    }
+}
+
+// ============================================================================
+// Forward/Backward Fill (for missing values)
+// ============================================================================
+
+impl<T> VecIndexFromOne<T>
+where
+    T: Copy + PartialEq + Default,
+{
+    /// Forward fill: replaces `T::default()` values with the previous non-default value.
+    ///
+    /// This is useful for time series with missing values.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![1, 0, 0, 2, 0, 3];
+    /// let filled = v.forward_fill();
+    /// assert_eq!(filled.as_slice(), &[1, 1, 1, 2, 2, 3]);
+    /// ```
+    #[inline]
+    pub fn forward_fill(&self) -> VecIndexFromOne<T> {
+        let mut result = VecIndexFromOne::with_capacity(self.len());
+        let mut last_val = T::default();
+        let mut found = false;
+
+        for i in 1..=self.len() {
+            if self[i] != T::default() {
+                last_val = self[i];
+                found = true;
+            }
+            if found {
+                result.push(last_val);
+            } else {
+                result.push(self[i]);
+            }
+        }
+
+        result
+    }
+
+    /// Backward fill: replaces `T::default()` values with the next non-default value.
+    ///
+    /// # Example
+    /// ```rust
+    /// use one_indexed_vec::{vec1, VecIndexFromOne};
+    /// let v = vec1![1, 0, 0, 2, 0, 3];
+    /// let filled = v.backward_fill();
+    /// assert_eq!(filled.as_slice(), &[1, 2, 2, 2, 3, 3]);
+    /// ```
+    #[inline]
+    pub fn backward_fill(&self) -> VecIndexFromOne<T> {
+        let mut result = VecIndexFromOne::with_capacity(self.len());
+        let mut next_val = T::default();
+        let mut found = false;
+
+        // First, find the first non-default value from the end
+        for i in (1..=self.len()).rev() {
+            if self[i] != T::default() {
+                next_val = self[i];
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            return self.clone();
+        }
+
+        // Then fill from right to left
+        for i in (1..=self.len()).rev() {
+            if self[i] != T::default() {
+                next_val = self[i];
+            }
+            result.push(next_val);
+        }
+
+        result.reverse();
+        result
+    }
+
+    /// Interpolates missing values (T::default()) linearly between known values.
+    ///
+    /// This is only implemented for f64 values.
+    #[inline]
+    pub fn linear_interpolate(&self) -> VecIndexFromOne<f64>
+    where
+        T: Into<f64> + PartialEq + Copy,
+    {
+        let mut result = VecIndexFromOne::with_capacity(self.len());
+        let mut known_values: Vec<(usize, f64)> = Vec::new();
+
+        // Collect all known values
+        for i in 1..=self.len() {
+            if self[i] != T::default() {
+                known_values.push((i, self[i].into()));
+            }
+        }
+
+        if known_values.is_empty() {
+            for _ in 1..=self.len() {
+                result.push(0.0);
+            }
+            return result;
+        }
+
+        if known_values.len() == 1 {
+            let val = known_values[0].1;
+            for _ in 1..=self.len() {
+                result.push(val);
+            }
+            return result;
+        }
+
+        let mut known_idx = 0;
+        for i in 1..=self.len() {
+            if self[i] != T::default() {
+                result.push(self[i].into());
+                if known_idx < known_values.len() - 1 {
+                    known_idx += 1;
+                }
+            } else {
+                // Interpolate between known_idx and known_idx + 1
+                let (idx1, val1) = known_values[known_idx];
+                let (idx2, val2) = known_values[known_idx + 1];
+                let fraction = (i - idx1) as f64 / (idx2 - idx1) as f64;
+                result.push(val1 + fraction * (val2 - val1));
+            }
+        }
+
+        result
+    }
+
+    /// Reverse the vector in-place.
+    #[inline]
+    pub fn reverse(&mut self) {
+        let slice = self.as_mut_slice();
+        slice.reverse();
+    }
+
+    /// Clone the vector (required for backward_fill when no default values found).
+    #[inline]
+    pub fn clone(&self) -> VecIndexFromOne<T>
+    where
+        T: Clone,
+    {
+        let mut result = VecIndexFromOne::with_capacity(self.len());
+        for i in 1..=self.len() {
+            result.push(self[i].clone());
+        }
+        result
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -1624,22 +2566,22 @@ mod tests {
         assert!(v.capacity() >= 20);
     }
 
-#[test]
-fn ensure_capacity_grows_when_needed() {
-    let mut v = VecIndexFromOne::new();
-    
-    // 先添加一些元素
-    for i in 1..=3 {
-        v.push(i);
+    #[test]
+    fn ensure_capacity_grows_when_needed() {
+        let mut v = VecIndexFromOne::new();
+        
+        // 先添加一些元素
+        for i in 1..=3 {
+            v.push(i);
+        }
+        
+        let old_cap = v.capacity();
+        let new_cap = v.ensure_capacity(old_cap + 50);
+        
+        // 确保容量增长了
+        assert!(new_cap > old_cap);
+        assert!(v.capacity() > old_cap);
     }
-    
-    let old_cap = v.capacity();
-    let new_cap = v.ensure_capacity(old_cap + 50);
-    
-    // 确保容量增长了
-    assert!(new_cap > old_cap);
-    assert!(v.capacity() > old_cap);
-}
 
     #[test]
     fn ensure_capacity_no_shrink() {
@@ -1771,5 +2713,102 @@ fn ensure_capacity_grows_when_needed() {
             a.dot_product_range_index1(&b, Index1::new(2), Index1::new(4)),
             a.dot_product_range(&b, 2, 4)
         );
+    }
+
+    // ---- new algorithm tests ----
+
+    #[test]
+    fn sliding_window_max_basic() {
+        let v = vec1![1, 3, -1, -3, 5, 3, 6, 7];
+        let maxes = v.sliding_window_max(3);
+        assert_eq!(maxes.as_slice(), &[3, 3, 5, 5, 6, 7]);
+    }
+
+    #[test]
+    fn sliding_window_max_window_size_one() {
+        let v = vec1![1, 2, 3, 4];
+        let maxes = v.sliding_window_max(1);
+        assert_eq!(maxes.as_slice(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn sliding_window_max_empty() {
+        let v: VecIndexFromOne<i32> = VecIndexFromOne::new();
+        let maxes = v.sliding_window_max(3);
+        assert!(maxes.is_empty());
+    }
+
+    #[test]
+    fn sliding_window_min_basic() {
+        let v = vec1![1, 3, -1, -3, 5, 3, 6, 7];
+        let mins = v.sliding_window_min(3);
+        assert_eq!(mins.as_slice(), &[-1, -3, -3, -3, 3, 3]);
+    }
+
+    #[test]
+    fn sliding_window_median_basic() {
+        let v = vec1![1, 3, 2, 4, 5, 6, 7, 8];
+        let medians = v.sliding_window_median(3);
+        assert_eq!(medians.as_slice(), &[2, 3, 4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn ewma_basic() {
+        let v: VecIndexFromOne<f64> = vec1![1.0, 2.0, 3.0, 4.0, 5.0];
+        let ewma = v.ewma(0.3);
+        assert!((ewma[1] - 1.0).abs() < 1e-10);
+        assert!((ewma[2] - 1.3).abs() < 1e-10);
+        assert!((ewma[3] - 1.81).abs() < 1e-10);
+    }
+
+    #[test]
+    fn max_subarray_sum_basic() {
+        let v = vec1![-2, 1, -3, 4, -1, 2, 1, -5, 4];
+        let (max_sum, start, end) = v.max_subarray_sum();
+        assert_eq!(max_sum, 6);
+        assert_eq!(start, 4);
+        assert_eq!(end, 7);
+    }
+
+    #[test]
+    fn majority_element_basic() {
+        let v = vec1![1, 2, 1, 1, 3, 1, 1];
+        assert_eq!(v.majority_element(), Some(1));
+    }
+
+    #[test]
+    fn majority_elements_n3_basic() {
+        let v = vec1![1, 2, 1, 3, 1, 2, 2];
+        let result = v.majority_elements_n3();
+        assert_eq!(result.as_slice(), &[1, 2]);
+    }
+
+    #[test]
+    fn convolve_basic() {
+        let a = vec1![1, 2, 3];
+        let b = vec1![4, 5];
+        let conv = a.convolve(&b);
+        assert_eq!(conv.as_slice(), &[4, 13, 22, 15]);
+    }
+
+    #[test]
+    fn min_max_normalize_basic() {
+        let v = vec1![1.0, 2.0, 3.0, 4.0, 5.0];
+        let normalized = v.min_max_normalize();
+        assert_eq!(normalized.as_slice(), &[0.0, 0.25, 0.5, 0.75, 1.0]);
+    }
+
+    #[test]
+    fn forward_fill_basic() {
+        let v = vec1![1, 0, 0, 2, 0, 3];
+        let filled = v.forward_fill();
+        assert_eq!(filled.as_slice(), &[1, 1, 1, 2, 2, 3]);
+    }
+
+    #[test]
+    fn backward_fill_basic() {
+        let v = vec1![1, 0, 0, 2, 0, 3];
+        let filled = v.backward_fill();
+        assert_eq!(filled.as_slice(), &[1, 2, 2, 2, 3, 3]);
     }
 }
